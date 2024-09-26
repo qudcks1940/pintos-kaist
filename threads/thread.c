@@ -106,6 +106,8 @@ thread_init (void) {
 	lgdt (&gdt_ds);
 
 	/* Init the globla thread context */
+	// 여기서 lock을 안걸어주면 같은 번호를 가진 스레드가 여러 개
+	// 생길 수가 있어서 lock을 걸어줘야함.
 	lock_init (&tid_lock);
 	list_init (&ready_list);
 	list_init (&destruction_req);
