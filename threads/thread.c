@@ -297,7 +297,7 @@ thread_unblock (struct thread *t) {
 	old_level = intr_disable ();
 	list_insert_ordered (&ready_list, &t->elem, priority_greater_func, NULL);
 	t->status = THREAD_READY;
-	
+
 	intr_set_level (old_level);
 
 	/* ready_list가 비어 있지 않고, 첫 번째 스레드의 우선순위가 현재 스레드보다 높으면 양보 */
@@ -312,7 +312,6 @@ thread_unblock (struct thread *t) {
 					}
 			}
 	}
-	//차단된 스레드를 준비 리스트(ready_list) 끝에 추가
 }
 
 // alarm-priority 해결을 위해 추가한 코드 

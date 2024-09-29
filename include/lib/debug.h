@@ -31,6 +31,7 @@ void debug_backtrace (void);
 	if ((CONDITION)) { } else {                             \
 		PANIC ("assertion `%s' failed.", #CONDITION);   \
 	}
+// 패닉이 오류라는 뜻. 커널 패닉
 #define NOT_REACHED() PANIC ("executed an unreachable statement");
 #else
 #define ASSERT(CONDITION) ((void) 0)
