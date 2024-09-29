@@ -297,7 +297,8 @@ cond_init (struct condition *cond) {
    interrupt handler.  This function may be called with
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
-/* 조건 변수 대기 함수: LOCK을 해제하고 COND가 신호를 보낼 때까지 대기한 후 LOCK을 다시 획득합니다. */
+/* 조건 변수 대기 함수: LOCK을 해제하고 COND가 신호를 보낼 때까지 대기한 후 
+LOCK을 다시 획득합니다. */
 void
 cond_wait (struct condition *cond, struct lock *lock) {
 	struct semaphore_elem waiter;
