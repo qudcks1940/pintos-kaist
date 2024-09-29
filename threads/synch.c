@@ -127,14 +127,14 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);		// 세마포어가 NULL이 아닌지 확인
 
 	old_level = intr_disable ();		// 인터럽트 비활성화
-	if (!list_empty (&sema->waiters)){     // 대기 중인 스레드가 있으면
-   
-   }		
-
+   // waiters 리스트를 우선순위에 따라 정렬
+   list_sort(&sema->waiters, priority_greater_func, NULL);
+	if (!list_empty (&sema->waiters))		// 대기 중인 스레드가 있으면
+		thread_unblock (list_entry (list_pop_front (&sema->waiters),
+					struct thread, elem));  // waiters에서 하나 자원할당.
 	sema->value++;				// 세마포어 값 증가
-   
-   intr_set_level (old_level);		// 이전 인터럽트 상태 복원
-   
+
+	intr_set_level (old_level);		// 이전 인터럽트 상태 복원
 }
 
 static void sema_test_helper (void *sema_);
