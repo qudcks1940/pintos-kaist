@@ -78,7 +78,9 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();  // 인터럽트 비활성화
 	while (sema->value == 0) {  // 세마포어 값이 0이면
-		list_push_back (&sema->waiters, &thread_current ()->elem);  // 현재 스레드를 대기 리스트에 추가
+		list_insert_ordered (&sema->waiters, &thread_current()->elem, priority_greater_func, NULL);
+      // list_push_back (&sema->waiters, &thread_current ()->elem);  
+      // 현재 스레드를 대기 리스트에 추가
 		thread_block ();  // 스레드를 블록
 	}
 	sema->value--;  // 세마포어 값 감소

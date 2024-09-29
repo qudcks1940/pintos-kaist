@@ -227,7 +227,7 @@ thread_create (const char *name, int priority,
 
     /* 스레드를 ready list에 추가 */
     thread_unblock (t);  // 스레드를 ready 상태로 만들어 실행 대기열에 추가
-
+		// 스레드 만들때 레디리스트 들어갈 일이 여러번 된다면 그땐?
     return tid;  // 생성된 스레드의 ID 반환
 }
 
@@ -265,23 +265,65 @@ thread_block (void) {
 	이후 다시 인터럽트 상태를 원래대로 복구합니다.
 	 
 	 */
+// void
+// thread_unblock (struct thread *t) {
+//     enum intr_level old_level;  // 이전 인터럽트 상태를 저장할 변수
+// 		struct thread *curr = thread_current();
+
+//     ASSERT (is_thread (t));  // 스레드 t가 유효한 스레드인지 확인
+//     ASSERT (t->status == THREAD_BLOCKED);  // 스레드 t가 BLOCKED 상태인지 확인
+
+//     /* 인터럽트 비활성화 */
+//     old_level = intr_disable ();  // 인터럽트를 비활성화하여 원자성을 보장
+//     /* ready list에 스레드를 추가 */
+// 		list_insert_ordered(&ready_list, &t->elem, priority_greater_func, NULL);
+// 		// list_push_back (&ready_list, &t->elem);  // 스레드를 ready list에 추가
+//     t->status = THREAD_READY;  // 스레드 상태를 READY로 변경
+//     /* 인터럽트 원래 상태로 복구 */
+//     intr_set_level (old_level);  // 이전 인터럽트 상태로 복구
+		
+// }
+
 void
 thread_unblock (struct thread *t) {
-    enum intr_level old_level;  // 이전 인터럽트 상태를 저장할 변수
 
-    ASSERT (is_thread (t));  // 스레드 t가 유효한 스레드인지 확인
+	enum intr_level old_level; 	// 인터럽트 상태를 저장하는 변수. 
+	// 함수 내부에서 인터럽트를 비활성화한 후 완료되면 원래 상태로 복원합니다.
 
-    /* 인터럽트 비활성화 */
-    old_level = intr_disable ();  // 인터럽트를 비활성화하여 원자성을 보장
-    ASSERT (t->status == THREAD_BLOCKED);  // 스레드 t가 BLOCKED 상태인지 확인
+	ASSERT (is_thread (t));
 
-    /* ready list에 스레드를 추가 */
-    list_push_back (&ready_list, &t->elem);  // 스레드를 ready list에 추가
-    t->status = THREAD_READY;  // 스레드 상태를 READY로 변경
+	ASSERT (t->status == THREAD_BLOCKED);
+	
+	old_level = intr_disable ();
+	list_insert_ordered (&ready_list, &t->elem, priority_greater_func, NULL);
+	t->status = THREAD_READY;
+	
+	intr_set_level (old_level);
 
-    /* 인터럽트 원래 상태로 복구 */
-    intr_set_level (old_level);  // 이전 인터럽트 상태로 복구
+	/* ready_list가 비어 있지 않고, 첫 번째 스레드의 우선순위가 현재 스레드보다 높으면 양보 */
+	if (!list_empty(&ready_list)) {
+			struct thread *first_t = list_entry(list_begin(&ready_list), struct thread, elem);
+			
+			/* 첫 번째 스레드의 우선순위가 현재 스레드보다 높으면 양보 */
+			if (first_t->priority > thread_get_priority()) {
+					/* 현재 스레드가 idle 스레드가 아닌 경우에만 양보 */
+					if (thread_current() != idle_thread) {
+							thread_yield();
+					}
+			}
+	}
+	//차단된 스레드를 준비 리스트(ready_list) 끝에 추가
 }
+
+// alarm-priority 해결을 위해 추가한 코드 
+bool priority_greater_func (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
+    struct thread *thread_a = list_entry(a, struct thread, elem);  // a에서 스레드 구조체 가져오기
+    struct thread *thread_b = list_entry(b, struct thread, elem);  // b에서 스레드 구조체 가져오기
+
+    // 우선순위가 더 높은 스레드가 먼저 오도록 비교
+    return thread_a->priority > thread_b->priority;
+}
+
 
 
 /* Returns the name of the running thread. */
@@ -341,7 +383,9 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+		// list_push_back (&ready_list, &curr->elem);
+		/* ready list에 스레드를 추가 */
+		list_insert_ordered(&ready_list, &curr->elem, priority_greater_func, NULL);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
@@ -349,7 +393,11 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
+	// struct thread *first_t = list_entry(list_front(&ready_list), struct thread, elem);
 	thread_current ()->priority = new_priority;
+	if (list_entry(list_begin(&ready_list), struct thread, elem)->priority > thread_get_priority()) {
+		thread_yield();
+	}
 }
 
 /* Returns the current thread's priority. */
