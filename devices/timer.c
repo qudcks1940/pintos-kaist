@@ -19,6 +19,7 @@
 
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
+static struct list sleep_list;
 
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
@@ -41,6 +42,7 @@ timer_init (void) {
 	outb (0x43, 0x34);    /* CW: counter 0, LSB then MSB, mode 2, binary. */
 	outb (0x40, count & 0xff);
 	outb (0x40, count >> 8);
+	list_init(&sleep_list); // sleeplist 초기화.
 
 	intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -73,11 +75,11 @@ timer_calibrate (void) {
 /* Returns the number of timer ticks since the OS booted. */
 int64_t
 timer_ticks (void) {
-	enum intr_level old_level = intr_disable ();
-	int64_t t = ticks;
-	intr_set_level (old_level);
-	barrier ();
-	return t;
+	enum intr_level old_level = intr_disable ();  // 1. 인터럽트를 비활성화하고 현재 인터럽트 상태를 저장
+	int64_t t = ticks;                            // 2. 전역 변수 `ticks`의 값을 읽음 (현재까지 경과된 틱)
+	intr_set_level (old_level);                   // 3. 이전 인터럽트 상태로 복원
+	barrier ();                                   // 4. 컴파일러 최적화 방지
+	return t;                                     // 5. 읽어온 틱 값을 반환
 }
 
 /* Returns the number of timer ticks elapsed since THEN, which
@@ -87,14 +89,17 @@ timer_elapsed (int64_t then) {
 	return timer_ticks () - then;
 }
 
-/* Suspends execution for approximately TICKS timer ticks. */
-void
+// 지정된 시간(틱 단위)동안 현재 스레드를 중단시키는 역할
+void 
 timer_sleep (int64_t ticks) {
-	int64_t start = timer_ticks ();
-
-	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks)
-		thread_yield ();
+	struct thread *this_thread = thread_current();  // 현재 실행중인 쓰레드 가져오기
+	int64_t start = timer_ticks ();					// 1. 현재 시간을 가져옴
+	ASSERT (intr_get_level () == INTR_ON);          // 2. 현재 인터럽트가 ON 상태 확인
+	enum intr_level old_level = intr_disable ();	// 3. 인터럽트 off
+	this_thread->wake_ticks = start + ticks;		// 4. 현재 쓰레드에
+	list_push_back(&sleep_list, &this_thread->elem); 
+	thread_block();
+	intr_set_level (old_level);  
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -122,11 +127,37 @@ timer_print_stats (void) {
 }
 
 /* Timer interrupt handler. */
+/* timer_interrupt에서 하는 일
+1. 매틱마다 timer_interrupt가 발생한다. 전역변수 ticks +1 
+
+2. sleep_list 관리
+- sleep_list 안에 wake 해야할 쓰레드가 있으면 깨워주기
+- 깨울 때 깨운 애를 unblock 처리해주고 sleep_list 목록에서 제거하기
+
+3. 라운드 로빈(RR) 기능 구현
+- thread_tick()에서 4틱 마다 실행중인 스레드를 Ready_list 맨 뒤로 보내주기
+*/
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
-	ticks++;
-	thread_tick ();
+    ticks++;  // 1. 매틱마다 전역변수 ticks 증가
+
+    struct list_elem *e = list_begin(&sleep_list);
+    while (e != list_end(&sleep_list)) {
+        struct thread *t = list_entry(e, struct thread, elem);
+
+        // 2. 현재 tick이 wake_ticks에 도달했는지 확인
+        if (ticks >= t->wake_ticks) {
+            e = list_remove(e);  // 리스트에서 제거하고 다음 요소로 이동
+            thread_unblock(t);   // 스레드를 깨움
+        } else {
+            e = list_next(e);    // 리스트의 다음 요소로 이동
+        }
+    }
+
+    // 3. 라운드 로빈(RR) 기능 구현: 4틱마다 스레드를 Ready_list로 보냄
+    thread_tick();
 }
+
 
 /* Returns true if LOOPS iterations waits for more than one timer
    tick, otherwise false. */

@@ -91,9 +91,15 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
-
+	int64_t wake_ticks;
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
+	// priority donation 구현
+	int init_priority;					/* init_priority */
+	struct lock *wait_on_lock; 			/* 해당 스레드가 대기 하고 있는 lock자료구조의 주소를 저장 */
+	struct list donations;				/* multiple donation 을 고려하기 위해 사용*/
+	struct list_elem donation_elem;		/* multiple donation 을 고려하기 위해 사용*/
+
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -142,5 +148,11 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
+
+/* priority */
+bool priority_greater (const struct list_elem *a, const struct list_elem *b, void *aux);
+void donate_priority(void);
+void remove_with_lock (struct lock *lock);
+void refresh_priority (void);
 
 #endif /* threads/thread.h */
