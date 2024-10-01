@@ -210,7 +210,10 @@ thread_create (const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock (t);
-
+	if (check_priority_threads())
+	{
+		thread_yield();
+	}
 	return tid;
 }
 
@@ -273,19 +276,6 @@ thread_unblock (struct thread *t) {
 	t->status = THREAD_READY;
 	
 	intr_set_level (old_level);
-
-	/* ready_list가 비어 있지 않고, 첫 번째 스레드의 우선순위가 현재 스레드보다 높으면 양보 */
-	if (!list_empty(&ready_list)) {
-			struct thread *first_t = list_entry(list_begin(&ready_list), struct thread, elem);
-			
-			/* 첫 번째 스레드의 우선순위가 현재 스레드보다 높으면 양보 */
-			if (first_t->priority > thread_get_priority()) {
-					/* 현재 스레드가 idle 스레드가 아닌 경우에만 양보 */
-					if (thread_current() != idle_thread) {
-							thread_yield();
-					}
-			}
-	}
 }
 
 bool
@@ -295,6 +285,26 @@ priority_greater (const struct list_elem *a, const struct list_elem *b, void *au
 	struct thread *thread_b = list_entry(b, struct thread, elem);
 	
 	return thread_a->priority > thread_b->priority;
+}
+
+bool donate_high_priority(const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+	const struct thread *priority_a = list_entry(a, struct thread, donation_elem);
+	const struct thread *priority_b = list_entry(b, struct thread, donation_elem);
+	return priority_a->priority > priority_b->priority;
+}
+
+bool check_priority_threads()
+{
+	if (list_empty(&ready_list))
+	{
+		return false;
+	}
+	if (thread_current()->priority < list_entry(list_front(&ready_list), struct thread, elem)->priority)
+	{
+		return true;
+	}
+	return false;
 }
 
 /* Returns the name of the running thread. */
@@ -361,10 +371,17 @@ thread_yield (void) {
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
-void
-thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
-	if (list_entry(list_begin(&ready_list), struct thread, elem)->priority > thread_get_priority()) {
+/* 현재 스레드의 우선 순위를 NEW_PRIORITY로 설정합니다. */
+void thread_set_priority(int new_priority)
+{
+	struct thread *t = thread_current();
+	// list_entry(list_front(&sleep_list), struct thread, elem)->wake_ticks
+	t->priority = new_priority;
+	t->init_priority = new_priority;
+
+	refresh_priority();
+	if (check_priority_threads())
+	{
 		thread_yield();
 	}
 }
@@ -582,112 +599,132 @@ thread_launch (struct thread *th) {
 			);
 }
 
-/* Schedules a new process. At entry, interrupts must be off.
- * This function modify current thread's status to status and then
- * finds another thread to run and switches to it.
- * It's not safe to call printf() in the schedule(). */
+
+/* 새로운 프로세스를 스케줄링합니다. 이 함수가 호출될 때 인터럽트는 꺼져 있어야 합니다.
+ * 이 함수는 현재 스레드의 상태를 status로 수정한 다음
+ * 실행할 다른 스레드를 찾아 전환합니다.
+ * schedule()에서 printf()를 호출하는 것은 안전하지 않습니다. */
+// 실행 중인 스레드를 다른 상태로 전환하고, 스케줄링 작업을 실행
 static void
-do_schedule(int status) {
-	ASSERT (intr_get_level () == INTR_OFF);
-	ASSERT (thread_current()->status == THREAD_RUNNING);
-	while (!list_empty (&destruction_req)) {
+do_schedule(int status)
+{
+	// 인터럽트 꺼져있는지 확인 / 스레드의 상태를 변경하는
+	// 작업은 원자적으로 이루어져야 하므로, 인터럽트가 꺼져 있어야 안전
+	ASSERT(intr_get_level() == INTR_OFF);				// 인터럽트가 비활성화된 상태를 확인
+	ASSERT(thread_current()->status == THREAD_RUNNING); // 현재 스레드가 실행 중임을 확인
+
+	while (!list_empty(&destruction_req))
+	{ // 파괴 요청 목록이 비어 있지 않은 경우
 		struct thread *victim =
-			list_entry (list_pop_front (&destruction_req), struct thread, elem);
-		palloc_free_page(victim);
+			list_entry(list_pop_front(&destruction_req), struct thread, elem); // 파괴할 스레드를 찾음
+		palloc_free_page(victim);											   // 해당 스레드의 페이지를 해제
 	}
-	thread_current ()->status = status;
-	schedule ();
+	thread_current()->status = status; // 현재 스레드의 상태를 업데이트
+	schedule();						   // 스케줄링 실행
 }
 
 static void
-schedule (void) {
-	struct thread *curr = running_thread ();
-	struct thread *next = next_thread_to_run ();
+schedule(void)
+{
+	struct thread *curr = running_thread();		// 현재 실행 중인 스레드
+	struct thread *next = next_thread_to_run(); // 다음에 실행할 스레드
 
-	ASSERT (intr_get_level () == INTR_OFF);
-	ASSERT (curr->status != THREAD_RUNNING);
-	ASSERT (is_thread (next));
-	/* Mark us as running. */
-	next->status = THREAD_RUNNING;
+	ASSERT(intr_get_level() == INTR_OFF);	// 인터럽트가 비활성화된 상태를 확인
+	ASSERT(curr->status != THREAD_RUNNING); // 현재 스레드가 더 이상 실행 중이 아님을 확인
+	ASSERT(is_thread(next));				// 다음 스레드가 유효한 스레드인지 확인
+	/* 실행 중으로 표시합니다. */
+	next->status = THREAD_RUNNING; // 다음 스레드를 실행 상태로 설정
 
-	/* Start new time slice. */
+	/* 새로운 타임 슬라이스를 시작합니다. */
 	thread_ticks = 0;
 
 #ifdef USERPROG
-	/* Activate the new address space. */
-	process_activate (next);
+	/* 새 주소 공간을 활성화합니다. */
+	process_activate(next); // 사용자 프로그램의 주소 공간 활성화
 #endif
 
-	if (curr != next) {
-		/* If the thread we switched from is dying, destroy its struct
-		   thread. This must happen late so that thread_exit() doesn't
-		   pull out the rug under itself.
-		   We just queuing the page free reqeust here because the page is
-		   currently used by the stack.
-		   The real destruction logic will be called at the beginning of the
-		   schedule(). */
-		if (curr && curr->status == THREAD_DYING && curr != initial_thread) {
-			ASSERT (curr != next);
-			list_push_back (&destruction_req, &curr->elem);
+	if (curr != next)
+	{
+		/* 전환된 스레드가 죽어가는 경우, 그 struct thread를 파괴합니다.
+		   이 작업은 늦게 이루어져야 하며, thread_exit()에서 스레드가
+		   스스로 파괴되지 않도록 해야 합니다.
+		   스택이 여전히 사용 중이므로 페이지 해제 요청을
+		   큐에 추가합니다.
+		   실제 파괴 로직은 schedule()의 시작 부분에서 호출됩니다. */
+		if (curr && curr->status == THREAD_DYING && curr != initial_thread)
+		{
+			ASSERT(curr != next);
+			list_push_back(&destruction_req, &curr->elem); // 파괴 요청 목록에 추가
 		}
 
-		/* Before switching the thread, we first save the information
-		 * of current running. */
-		thread_launch (next);
+		/* 스레드를 전환하기 전에, 현재 실행 중인 정보를 저장합니다. */
+		thread_launch(next); // 새로운 스레드 실행
 	}
 }
 
-/* Returns a tid to use for a new thread. */
-static tid_t
-allocate_tid (void) {
-	static tid_t next_tid = 1;
-	tid_t tid;
-
-	lock_acquire (&tid_lock);
-	tid = next_tid++;
-	lock_release (&tid_lock);
-
-	return tid;
-}
-
-void donate_priority(void)
+void donate_priority()
 {
-	int depth;
-    struct thread *cur = thread_current();
-    
-    for (depth =0; depth < 8; depth++) {
-    	if (!cur->wait_on_lock) // 기다리는 lock이 없다면 종료
-        	break;
-        struct thread *holder = cur->wait_on_lock->holder;
-        holder->priority = cur->priority;
-        cur = holder;
-    }
+	struct thread *now_thread = thread_current();
+	struct thread *holder;
+	int depth = 0;
+	while (depth < 8 && now_thread->wait_on_lock != NULL)
+	{
+		holder = now_thread->wait_on_lock->holder;
+		if (holder == NULL) // holder가 NULL인 경우 탈출
+			break;
+		// 현재 스레드의 우선순위가 더 높다면 기부
+		if (holder->priority < now_thread->priority)
+		{
+			holder->priority = now_thread->priority;
+		}
+		now_thread = holder;
+		depth++;
+	}
 }
 
 /* priority */
-void remove_with_lock (struct lock *lock)
+void remove_with_lock(struct lock *lock)
 {
-  struct list_elem *e;
-  struct thread *cur = thread_current ();
+	struct thread *now_thread = thread_current();
+	struct list_elem *e;
+	for (e = list_begin(&now_thread->donations); e != list_end(&now_thread->donations); e = list_next(e))
+	{
+		struct thread *th = list_entry(e, struct thread, donation_elem);
+		if (th->wait_on_lock == lock)
+		{
+			list_remove(&th->donation_elem);
+		}
+	}
+}
+void refresh_priority()
+{
+	struct thread *current_thread = thread_current();
 
-  for (e = list_begin (&cur->donations); e != list_end (&cur->donations); e = list_next (e)){
-    struct thread *t = list_entry (e, struct thread, donation_elem);
-    if (t->wait_on_lock == lock)
-      list_remove (&t->donation_elem);
-  }
+	// 1. 원래의 우선순위로 초기화
+	current_thread->priority = current_thread->init_priority;
+
+	// 2. 기부받은 우선순위가 있는 경우 가장 높은 우선순위로 갱신
+	if (!list_empty(&current_thread->donations))
+	{
+		list_sort(&current_thread->donations, donate_high_priority, NULL);
+		struct thread *highest_donor = list_entry(list_front(&current_thread->donations), struct thread, donation_elem);
+		if (current_thread->priority < highest_donor->priority)
+		{
+			current_thread->priority = highest_donor->priority;
+		}
+	}
 }
 
-void refresh_priority (void)
+/* 새 스레드에 사용할 tid를 반환합니다. */
+static tid_t
+allocate_tid(void)
 {
-  struct thread *cur = thread_current ();
+	static tid_t next_tid = 1; // 다음에 사용할 tid 값
+	tid_t tid;
 
-  cur->priority = cur->init_priority;
-  
-  if (!list_empty (&cur->donations)) {
-    list_sort (&cur->donations, thread_compare_donate_priority, 0);
+	lock_acquire(&tid_lock); // tid 락을 획득하여 동시 접근을 방지
+	tid = next_tid++;		 // 새로운 tid를 할당하고 값 증가
+	lock_release(&tid_lock); // 락 해제
 
-    struct thread *front = list_entry (list_front (&cur->donations), struct thread, donation_elem);
-    if (front->priority > cur->priority)
-      cur->priority = front->priority;
-  }
+	return tid; // 할당된 tid 반환
 }

@@ -135,13 +135,17 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);		// 세마포어가 NULL이 아닌지 확인
 
 	old_level = intr_disable ();		// 인터럽트 비활성화
-	sema->value++;				// 세마포어 값 증가
 	if (!list_empty (&sema->waiters))		// 대기 중인 스레드가 있으면
    {
       list_sort(&sema->waiters,priority_greater,NULL);
 		thread_unblock (list_entry (list_pop_front (&sema->waiters),
 					struct thread, elem));
    }
+	sema->value++;				// 세마포어 값 증가
+   if (check_priority_threads())
+	{
+		thread_yield();
+	}
 	intr_set_level (old_level);		// 이전 인터럽트 상태 복원
 }
 
@@ -226,23 +230,13 @@ void lock_acquire (struct lock *lock) {
     if (lock->holder) {
         cur->wait_on_lock = lock; // 현재 스레드가 어떤 lock 기다리고 있는지 입력
         list_insert_ordered(&lock->holder->donations, &cur->donation_elem, 
-        thread_compare_donate_priority, 0);
+        donate_high_priority, NULL);
         donate_priority();
     }
-    /* --- pjt 1.2 priority donation --- */
     
     sema_down (&lock->semaphore);
-    /* --- pjt 1.2 priority donation --- */
     cur->wait_on_lock = NULL;
-    /* --- pjt 1.2 priority donation --- */
-    lock->holder = thread_current ();
-}
-bool
-thread_compare_donate_priority (const struct list_elem *l, 
-				const struct list_elem *s, void *aux UNUSED)
-{
-	return list_entry (l, struct thread, donation_elem)->priority
-		 > list_entry (s, struct thread, donation_elem)->priority;
+    lock->holder = cur;
 }
 
 /* Tries to acquires LOCK and returns true if successful or false

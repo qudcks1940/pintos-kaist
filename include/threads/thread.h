@@ -94,6 +94,7 @@ struct thread {
 	int64_t wake_ticks;
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
+
 	// priority donation 구현
 	int init_priority;					/* init_priority */
 	struct lock *wait_on_lock; 			/* 해당 스레드가 대기 하고 있는 lock자료구조의 주소를 저장 */
@@ -150,9 +151,13 @@ int thread_get_load_avg (void);
 void do_iret (struct intr_frame *tf);
 
 /* priority */
+// 추가해준 함수들
 bool priority_greater (const struct list_elem *a, const struct list_elem *b, void *aux);
+
 void donate_priority(void);
-void remove_with_lock (struct lock *lock);
-void refresh_priority (void);
+void remove_with_lock(struct lock *lock);
+void refresh_priority(void);
+bool check_priority_threads();
+bool donate_high_priority(const struct list_elem *a, const struct list_elem *b, void *aux);
 
 #endif /* threads/thread.h */
