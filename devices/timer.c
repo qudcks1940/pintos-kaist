@@ -137,6 +137,7 @@ timer_print_stats (void) {
 3. 라운드 로빈(RR) 기능 구현
 - thread_tick()에서 4틱 마다 실행중인 스레드를 Ready_list 맨 뒤로 보내주기
 */
+
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
     ticks++;  // 1. 매틱마다 전역변수 ticks 증가
