@@ -215,44 +215,56 @@ outputs:
 'to'
 'tokenize.'
 */
+/*
+문자열을 구분자(DELIMITERS)로 나누어 토큰으로 분리합니다. 이 함수가 처음 호출될 때는 S에 나눌 문자열을 전달해야 하며, 
+그 이후 호출에서는 NULL을 전달해야 합니다. SAVE_PTR은 char * 변수의 주소로, 토크나이저의 위치를 추적하는 데 사용됩니다. 
+각 호출 시 반환값은 문자열에서 다음 토큰이며, 더 이상 남은 토큰이 없으면 null 포인터를 반환합니다.
+
+이 함수는 여러 개의 인접한 구분자를 하나의 구분자로 취급합니다. 반환된 토큰은 절대 길이가 0이 될 수 없습니다. 
+구분자는 한 문자열 안에서 호출할 때마다 변경될 수 있습니다.
+
+strtok_r() 함수는 문자열 S를 수정하며, 구분자를 null 바이트로 바꿉니다. 따라서 S는 수정 가능한 문자열이어야 합니다. 
+특히, C에서는 문자열 리터럴은 수정할 수 없으므로 사용하면 안 됩니다. 
+(이전 버전과의 호환성을 위해 문자열 리터럴은 const가 아니지만 여전히 수정 불가합니다.).*/
 char *
 strtok_r (char *s, const char *delimiters, char **save_ptr) {
 	char *token;
 
-	ASSERT (delimiters != NULL);
-	ASSERT (save_ptr != NULL);
+	ASSERT (delimiters != NULL); // 구분자는 NULL이 아니어야 한다.
+	ASSERT (save_ptr != NULL);   // save_ptr도 NULL이 아니어야 한다.
 
-	/* If S is nonnull, start from it.
-	   If S is null, start from saved position. */
+	/* 첫 호출 시에는 원본 문자열을 넘기고, 이후에는 NULL을 넘겨줍니다. */
+	/* S가 NULL이 아니면 S에서 시작한다.
+	   S가 NULL이면 저장된 위치에서 시작한다. */
 	if (s == NULL)
+		//문자열의 현재 위치를 저장하기 위한 포인터입니다. 함수가 호출될 때마다 어디까지 처리했는지 기억합니다.
 		s = *save_ptr;
-	ASSERT (s != NULL);
+	ASSERT (s != NULL); // s는 NULL이 아니어야 한다.
 
-	/* Skip any DELIMITERS at our current position. */
+	/* 현재 위치에서 구분자를 건너뛴다. */
 	while (strchr (delimiters, *s) != NULL) {
-		/* strchr() will always return nonnull if we're searching
-		   for a null byte, because every string contains a null
-		   byte (at the end). */
+		/* 널 바이트를 찾고 있다면,
+		   모든 문자열은 끝에 널 바이트가 있기 때문에
+		   strchr()는 항상 NULL이 아닌 값을 반환한다. */
 		if (*s == '\0') {
-			*save_ptr = s;
-			return NULL;
+			*save_ptr = s; // 문자열의 끝을 저장
+			return NULL; // 더 이상 토큰이 없음을 반환
 		}
 
-		s++;
+		s++; // 구분자를 건너뛴다.
 	}
 
-	/* Skip any non-DELIMITERS up to the end of the string. */
-	token = s;
+	/* 문자열의 끝까지 구분자가 아닌 부분을 건너뛴다. */
+	token = s; // 현재 위치를 토큰의 시작으로 설정
 	while (strchr (delimiters, *s) == NULL)
 		s++;
 	if (*s != '\0') {
-		*s = '\0';
-		*save_ptr = s + 1;
+		*s = '\0'; // 구분자를 널 문자로 변경하여 현재 토큰 종결, 구분자가 있던 위치를 널문자로 바꿔줌. 독립적인 문자열 처럼 취급됨.
+		*save_ptr = s + 1; // 다음 위치를 저장
 	} else
-		*save_ptr = s;
-	return token;
+		*save_ptr = s; // 문자열의 끝에 도달한 경우
+	return token; // 발견한 토큰 반환
 }
-
 /* Sets the SIZE bytes in DST to VALUE. */
 void *
 memset (void *dst_, int value, size_t size) {

@@ -33,29 +33,36 @@ process_init (void) {
 	struct thread *current = thread_current ();
 }
 
-/* Starts the first userland program, called "initd", loaded from FILE_NAME.
- * The new thread may be scheduled (and may even exit)
- * before process_create_initd() returns. Returns the initd's
- * thread id, or TID_ERROR if the thread cannot be created.
- * Notice that THIS SHOULD BE CALLED ONCE. */
+/* 사용자 프로그램 "initd"를 시작하는 함수입니다. 
+ * FILE_NAME에서 프로그램을 로드한 후, 새로운 스레드를 생성하여 실행합니다.
+ * 이 함수는 스레드가 생성되기 전에 스케줄링될 수 있으며,
+ * 심지어는 함수가 반환되기 전에 스레드가 종료될 수 있습니다.
+ * 생성된 스레드의 ID를 반환하며, 스레드 생성에 실패하면 TID_ERROR를 반환합니다.
+ * 주의: 이 함수는 한 번만 호출되어야 합니다. */
 tid_t
 process_create_initd (const char *file_name) {
-	char *fn_copy;
-	tid_t tid;
+    char *fn_copy, *token, *save_ptr;
+    tid_t tid;
 
-	/* Make a copy of FILE_NAME.
-	 * Otherwise there's a race between the caller and load(). */
-	fn_copy = palloc_get_page (0);
-	if (fn_copy == NULL)
-		return TID_ERROR;
-	strlcpy (fn_copy, file_name, PGSIZE);
+    /* FILE_NAME의 복사본을 만듭니다.
+     * 그렇지 않으면 호출자와 load() 함수 사이에 경쟁 상태가 발생할 수 있습니다.
+     * (원본 문자열이 다른 곳에서 변경될 수 있기 때문에 복사본을 만들어야 합니다.) */
+    fn_copy = palloc_get_page (0);
+    if (fn_copy == NULL)
+        return TID_ERROR; // 페이지 할당에 실패하면 오류 반환
+    strlcpy (fn_copy, file_name, PGSIZE); // FILE_NAME을 복사하고 페이지 크기(PGSIZE)만큼 복사함
 
-	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
-	if (tid == TID_ERROR)
-		palloc_free_page (fn_copy);
-	return tid;
+    /* FILE_NAME을 실행할 새로운 스레드를 생성합니다.
+     * 새로운 스레드의 이름은 FILE_NAME이며,
+     * 스레드의 우선순위는 기본값(PRI_DEFAULT)입니다.
+     * 스레드가 실행할 함수는 initd이고, fn_copy를 인자로 전달합니다. */
+	strtok_r(file_name, ' ', &save_ptr);
+    tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
+    if (tid == TID_ERROR) // 스레드 생성 실패 시
+        palloc_free_page (fn_copy); // 할당된 페이지를 해제하여 메모리 누수 방지
+    return tid; // 생성된 스레드의 ID 반환 (실패 시 TID_ERROR 반환)
 }
+
 
 /* A thread function that launches first user process. */
 static void
@@ -158,37 +165,148 @@ error:
 	thread_exit ();
 }
 
-/* Switch the current execution context to the f_name.
- * Returns -1 on fail. */
+/*process_exec() 함수는 새로운 프로세스를 실행하기 위해 현재 프로세스의 리소스를 정리하고, 
+ 새로운 프로세스를 메모리에 로드한 다음, 해당 프로세스로 전환합니다. 
+ 이 과정에서 프로세스의 실행 상태를 저장하는 구조체를 사용하여 프로세스가 정상적으로 실행될 수 있도록 합니다. 
+ 현재 실행 중인 컨텍스트를 f_name으로 전환.
+ * 실패할 경우 -1을 반환합니다. */
 int
-process_exec (void *f_name) {
-	char *file_name = f_name;
+process_exec (const char *f_name) {
+	// argc와 argv를 각각 rdi와 rsi 레지스터에 설정
+	char *file_name = f_name;  // `f_name`을 복사하여 `file_name`에 저장합니다. 
+    // 시스템 콜의 인자로 전달된 실행 파일 이름을 사용합니다.
+	char *token, *save_ptr, *argv[64]; // 명령어와 인자를 저장할 배열
 	bool success;
+	int argc = 0;   // 인자의 개수 (argument count)
 
-	/* We cannot use the intr_frame in the thread structure.
-	 * This is because when current thread rescheduled,
-	 * it stores the execution information to the member. */
+	/* 
+     * intr_frame 구조체 초기화: 
+     * 프로세스의 실행 상태를 관리하는 인터럽트 프레임(_if) 구조체를 선언하고, 
+     * 새로운 프로세스 실행을 위한 세그먼트 레지스터와 플래그 레지스터를 설정합니다.
+       이 구조체는 프로세스의 실행 상태를 저장하는데 사용됩니다 */
 	struct intr_frame _if;
-	_if.ds = _if.es = _if.ss = SEL_UDSEG;
-	_if.cs = SEL_UCSEG;
-	_if.eflags = FLAG_IF | FLAG_MBS;
+	_if.ds = _if.es = _if.ss = SEL_UDSEG; //사용자 데이터 세그먼트로 설정
+	_if.cs = SEL_UCSEG; //사용자 코드 세그먼트로 설정
+	// 플래그 레지스터를 설정, FLAG_IF는 인터럽트를 활성화하고, FLAG_MBS는 상태를 설정
+	_if.eflags = FLAG_IF | FLAG_MBS; 
 
-	/* We first kill the current context */
+	 /* 
+     * 현재 컨텍스트 종료: 
+     * 이전 프로세스의 리소스를 정리하고 해제하는 역할을 하는 process_cleanup()을 호출합니다.
+     * 이를 통해 현재 프로세스의 종료 상태를 준비합니다.
+     */
 	process_cleanup ();
 
-	/* And then load the binary */
-	success = load (file_name, &_if);
+	/* 
+     * file_name을 공백(' ')으로 구분하여 인자들을 추출하고 argv 배열에 저장합니다.
+     * strtok_r를 사용하여 첫 번째 호출에서는 `f_name`을 전달하고, 이후 호출에서는 NULL을 전달하여 
+     * 이전 호출의 위치에서 계속 토큰화가 이루어집니다.
+     */
 
-	/* If load failed, quit. */
+	token = strtok_r(file_name, ' ', &save_ptr); // 첫 번째 호출 이후 NULL로 설정하여 다음 토큰을 처리
+	while (token != NULL) {
+		argv[argc++] = token; // argv 배열에 토큰 저장
+		token = strtok_r(NULL, ' ', &save_ptr); 
+	}
+
+	/* 
+     * 바이너리 로드: 
+     * load() 함수는 file_name으로 지정된 프로그램(바이너리)을 메모리에 로드하고, 
+     * 성공하면 인터럽트 프레임 _if에 새로운 프로세스의 실행 정보를 설정합니다.
+     */
+    success = load(file_name, &_if);
+
+    /* 
+     * 인자를 스택에 푸시: 
+     * argument_stack() 함수를 호출하여 argv에 저장된 인자들을 
+     * 프로세스의 스택에 올려놓습니다. 
+     * argc는 인자의 개수입니다.
+     */
+    argument_stack(argv, argc, &_if);
+
+	/* 
+     * 스택 덤프: 
+     * hex_dump()는 스택 메모리의 내용을 확인할 수 있도록 덤프를 출력하는 함수입니다.
+     * _if.rsp는 현재 스택 포인터를 가리키며, 스택의 시작과 끝 범위를 덤프 출력합니다.
+     */
+    hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true);
+
+    /* 
+     * 메모리 해제: 
+     * palloc_free_page() 함수는 file_name으로 할당된 페이지 메모리를 해제합니다.
+     */
 	palloc_free_page (file_name);
-	if (!success)
-		return -1;
 
-	/* Start switched process. */
-	do_iret (&_if);
+	/* 
+     * 바이너리 로드 실패 시: 
+     * load() 함수가 실패하면 -1을 반환하여 오류를 나타냅니다.
+     */
+    if (!success)
+        return -1;
+
+    /* 
+     * do_iret() 함수 호출: 
+     * 새로운 프로세스를 시작하기 위해 do_iret()을 호출합니다.
+     * 이 함수는 _if 구조체에 저장된 프로세스의 실행 정보를 사용하여 
+     * CPU 레지스터를 설정하고, 실행을 시작합니다.
+     */
+    do_iret(&_if);
+
+    /* 
+     * NOT_REACHED() 매크로: 
+     * 이 매크로는 코드가 이 지점에 도달해서는 안 된다는 의미입니다. 
+     * do_iret()이 성공적으로 실행되면, 프로세스는 새로운 프로그램으로 전환되기 때문에
+     * 이 아래 코드는 실행되지 않아야 합니다. 만약 도달한다면, 오류가 발생한 것입니다.
+     */
 	NOT_REACHED ();
 }
+/* 프로그램을메모리에적재하고응용프로그램실행*/
 
+/*
+유저스택에프로그램이름과인자들을저장하는함수
+parse: 프로그램이름과인자가저장되어있는메모리공간, 
+count: 인자의개수, 
+esp: 스택포인터를가리키는주소*/
+void argument_stack(char **argv, int argc, struct intr_frame *if_)
+{
+	char *arg_address[128];
+
+	// 프로그램 이름, 인자 문자열 push
+	for(int i = argc - 1; i >= 0; i--)
+	{
+		int arg_i_len = strlen(argv[i]) +1;	//sential(\0) 포함
+		if_->rsp -= arg_i_len;			//인자 크기만큼 스택을 늘려줌
+		memcpy(if_->rsp, argv[i], arg_i_len);	//늘려준 공간에 해당 인자를 복사
+		arg_address[i] = (char *)if_->rsp;	//arg_address에 위 인자를 복사해준 주소값을 저장
+	}
+
+	// word-align(8의 배수)로 맞춰주기
+	if(if_->rsp % 8 != 0)
+	{	
+		int padding = if_->rsp % 8;
+		if_->rsp -= padding;
+		memset(if_->rsp, 0, padding);
+	}
+
+	// 인자 문자열 종료를 나타내는 0 push
+	if_->rsp -= 8; 	
+	memset(if_->rsp, 0, 8);
+
+	// 각 인자 문자열의 주소 push
+	for(int i = argc-1; i >= 0; i--)
+	{
+		if_->rsp -= 8;
+		memcpy(if_->rsp, &arg_address[i], 8);
+	}
+
+	// fake return address
+	if_->rsp -= 8;
+	memset(if_->rsp, 0, 8);
+
+	//rdi 에는 인자의 개수, rsi에는 argv 첫 인자의 시작 주소 저장
+	if_->R.rdi = argc;
+	if_->R.rsi = if_->rsp + 8;	//fake return address + 8
+}
 
 /* Waits for thread TID to die and returns its exit status.  If
  * it was terminated by the kernel (i.e. killed due to an
@@ -204,6 +322,10 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	while(1) {
+		
+	}
+
 	return -1;
 }
 
