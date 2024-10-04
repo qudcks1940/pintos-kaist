@@ -44,14 +44,12 @@ struct intr_frame {
 	uint16_t ds;
 	uint16_t __pad3;
 	uint32_t __pad4;
-	uint32_t eax; // eax 저장 새로 추가
 	/* Pushed by intrNN_stub in intr-stubs.S. */
 	uint64_t vec_no; /* Interrupt vector number. */
 /* Sometimes pushed by the CPU,
    otherwise for consistency pushed as 0 by intrNN_stub.
    The CPU puts it just under `eip', but we move it here. */
 	uint64_t error_code;
-	void *esp; /* 스택 포인터 저장 , 새로 추가 */
 /* Pushed by the CPU.
    These are the interrupted task's saved registers. */
 	uintptr_t rip;

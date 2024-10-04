@@ -41,7 +41,7 @@ process_init (void) {
  * 주의: 이 함수는 한 번만 호출되어야 합니다. */
 tid_t
 process_create_initd (const char *file_name) {
-    char *fn_copy, *token, *save_ptr;
+    char *fn_copy, *save_ptr;
     tid_t tid;
 
     /* FILE_NAME의 복사본을 만듭니다.
@@ -56,7 +56,10 @@ process_create_initd (const char *file_name) {
      * 새로운 스레드의 이름은 FILE_NAME이며,
      * 스레드의 우선순위는 기본값(PRI_DEFAULT)입니다.
      * 스레드가 실행할 함수는 initd이고, fn_copy를 인자로 전달합니다. */
-	strtok_r(file_name, ' ', &save_ptr);
+	strtok_r(file_name, " ", &save_ptr);
+	printf("-------------------\n");
+	printf("-------%s-----\n",file_name);
+	printf("-------------------\n");
     tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
     if (tid == TID_ERROR) // 스레드 생성 실패 시
         palloc_free_page (fn_copy); // 할당된 페이지를 해제하여 메모리 누수 방지
@@ -171,7 +174,7 @@ error:
  현재 실행 중인 컨텍스트를 f_name으로 전환.
  * 실패할 경우 -1을 반환합니다. */
 int
-process_exec (const char *f_name) {
+process_exec (void *f_name) {
 	// argc와 argv를 각각 rdi와 rsi 레지스터에 설정
 	char *file_name = f_name;  // `f_name`을 복사하여 `file_name`에 저장합니다. 
     // 시스템 콜의 인자로 전달된 실행 파일 이름을 사용합니다.
@@ -203,10 +206,13 @@ process_exec (const char *f_name) {
      * 이전 호출의 위치에서 계속 토큰화가 이루어집니다.
      */
 
-	token = strtok_r(file_name, ' ', &save_ptr); // 첫 번째 호출 이후 NULL로 설정하여 다음 토큰을 처리
+	token = strtok_r(file_name, " ", &save_ptr); // 첫 번째 호출 이후 NULL로 설정하여 다음 토큰을 처리
 	while (token != NULL) {
 		argv[argc++] = token; // argv 배열에 토큰 저장
-		token = strtok_r(NULL, ' ', &save_ptr); 
+		printf("-------------------\n");
+		printf("-------%s-----\n",token);
+		printf("-------------------\n");
+		token = strtok_r(NULL, " ", &save_ptr); 
 	}
 
 	/* 
@@ -236,7 +242,7 @@ process_exec (const char *f_name) {
      * palloc_free_page() 함수는 file_name으로 할당된 페이지 메모리를 해제합니다.
      */
 	palloc_free_page (file_name);
-
+	
 	/* 
      * 바이너리 로드 실패 시: 
      * load() 함수가 실패하면 -1을 반환하여 오류를 나타냅니다.
