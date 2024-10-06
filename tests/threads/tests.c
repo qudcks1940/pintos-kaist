@@ -43,22 +43,31 @@ static const struct test tests[] =
 static const char *test_name;
 
 /* Runs the test named NAME. */
+/* 주어진 테스트 이름을 실행하는 함수.
+   - name: 실행할 테스트의 이름.
+   - tests 배열에서 주어진 이름과 일치하는 테스트를 찾음.
+   - 일치하는 테스트가 있으면 그 테스트 함수를 실행하고, 완료 후 "begin", "end" 메시지를 출력.
+   - 일치하는 테스트가 없으면 오류 메시지를 출력하고 프로그램 종료. */
 void
 run_test (const char *name) 
 {
   const struct test *t;
 
+  // tests 배열에서 테스트 이름을 찾음
   for (t = tests; t < tests + sizeof tests / sizeof *tests; t++)
-    if (!strcmp (name, t->name))
+    if (!strcmp (name, t->name))  // 입력한 이름과 일치하는 테스트를 찾음
       {
-        test_name = name;
-        msg ("begin");
-        t->function ();
-        msg ("end");
-        return;
+        test_name = name;  // 테스트 이름 저장
+        msg ("begin");  // "begin" 메시지 출력
+        t->function ();  // 테스트 함수 실행
+        msg ("end");  // "end" 메시지 출력
+        return;  // 함수 종료
       }
+  
+  // 테스트 이름이 없으면 오류 메시지 출력
   PANIC ("no test named \"%s\"", name);
 }
+
 
 /* Prints FORMAT as if with printf(),
    prefixing the output by the name of the test

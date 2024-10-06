@@ -8,6 +8,10 @@
 #include "threads/flags.h"
 #include "intrinsic.h"
 
+// 내가 추가한 내용
+
+
+
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
@@ -37,10 +41,95 @@ syscall_init (void) {
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 }
 
-/* The main system call interface */
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
 	printf ("system call!\n");
-	thread_exit ();
+   thread_exit();
 }
+// /* The main system call interface */
+// void
+// syscall_handler (struct intr_frame *f UNUSED) {
+// 	// TODO: Your implementation goes here.
+// 	printf ("system call!\n");
+// 	uint64_t syscall_num = f->R.rax;
+// 	switch(syscall_num)
+//    {
+//       // 반환값 있으면 f->R.rax 에 넣기.
+//       // 인자 갯수만큼 순서대로 rdi, rsi, rdx 순
+//       case SYS_HALT:
+//          halt();
+//          break;
+//       case SYS_EXIT:   
+//          exit(f->R.rdi);
+//          break;
+//       case SYS_FORK:
+//          f->R.rax = fork(f->R.rdi, f->R.rsi);
+//          break;
+//       case SYS_EXEC:
+//          f->R.rax = exec(f->R.rdi);
+//          break;
+//       case SYS_WAIT:
+//          f->R.rax = wait(f->R.rdi);
+//          break;
+//       case SYS_CREATE:
+//          f->R.rax = create(f->R.rdi, f->R.rsi);
+//          break;
+//       case SYS_OPEN:
+//          f->R.rax = open(f->R.rdi);
+//          break;
+//       case SYS_FILESIZE:
+//          f->R.rax = filesize(f->R.rdi);
+//          break;
+//       case SYS_READ:
+//          f->R.rax = read(f->R.rdi, f->R.rsi, f->R.rdx);
+//          break;
+//       case SYS_WRITE:
+//          f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
+//          break;   
+//       case SYS_SEEK:
+//          seek(f->R.rdi, f->R.rsi);
+//          break;   
+//       case SYS_TELL:
+//          f->R.rax = tell(f->R.rdi);
+//          break;   
+//       case SYS_CLOSE:
+//          close(f->R.rdi);
+//          break;   
+
+//       default:
+//          break;
+//    }
+//    printf ("system call!\n");
+// }
+
+// void halt (void){
+//    power_off();
+// }
+
+// void exit (int status){
+//    struct thread *t = thread_current();
+//    printf("%s: exit%d\n", t->name, status);
+
+//    thread_exit();
+// }
+
+// pid_t fork (const char *thread_name){
+
+// }
+
+// int exec (const char *file){
+
+// }
+
+// int wait (pid_t pid){
+// 	// 부모 프로세스의 직속 자식인지 체크
+// 	// 자식 프로세스는 부모 프로세스가 fork()호출 시 
+// 	// 성공적으로 반환한 pid를 통해 식별됨.
+// 	check_real_parent(pid);
+// }
+
+// int check_real_parent(pid){
+
+	
+// }

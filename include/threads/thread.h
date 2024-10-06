@@ -101,11 +101,19 @@ struct thread {
 	struct list donations;				/* multiple donation 을 고려하기 위해 사용*/
 	struct list_elem donation_elem;		/* multiple donation 을 고려하기 위해 사용*/
 
+	
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
 #endif
+
+	// 프로젝트 2 USERPROG를 위해 추가한 아이들
+	int exit_status;
+	struct file **fd_table;    /* Points to starting address of file descriptor table. */
+	int fd_idx;                /* File descriptor table index. */
+	struct file *running_file; /* Current file. */
+
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;

@@ -215,43 +215,50 @@ outputs:
 'to'
 'tokenize.'
 */
+/*
+문자열 `s`를 `delimiters`로 구분하여 분리된 토큰을 반환하는 함수.
+`s`가 비어 있지 않으면 그 문자열에서 시작하여 토큰을 찾고,
+`s`가 NULL이면 `save_ptr`에서 저장된 위치에서 시작하여 다음 토큰을 찾는다.
+함수가 호출될 때마다 토큰을 반환하고, 더 이상 토큰이 없으면 NULL을 반환한다.
+*/
+
 char *
 strtok_r (char *s, const char *delimiters, char **save_ptr) {
-	char *token;
+    char *token;
 
-	ASSERT (delimiters != NULL);
-	ASSERT (save_ptr != NULL);
+    ASSERT (delimiters != NULL);  // 구분자(delimiters)가 NULL인지 확인 (NULL이면 오류)
+    ASSERT (save_ptr != NULL);    // save_ptr이 NULL인지 확인 (NULL이면 오류)
 
-	/* If S is nonnull, start from it.
-	   If S is null, start from saved position. */
-	if (s == NULL)
-		s = *save_ptr;
-	ASSERT (s != NULL);
+    /* s가 비어있지 않으면 해당 문자열에서 시작,
+       s가 NULL이면 이전에 저장된 위치(save_ptr)에서 시작 */
+    if (s == NULL)
+        s = *save_ptr;
+    ASSERT (s != NULL);  // s가 NULL인지 확인 (NULL이면 오류)
 
-	/* Skip any DELIMITERS at our current position. */
-	while (strchr (delimiters, *s) != NULL) {
-		/* strchr() will always return nonnull if we're searching
-		   for a null byte, because every string contains a null
-		   byte (at the end). */
-		if (*s == '\0') {
-			*save_ptr = s;
-			return NULL;
-		}
+    /* 현재 위치에서 구분자를 모두 건너뜀 */
+		// 문자면 while문 안들어감.
+		// 현재 구분자이면 while문 들어감.
+    while (strchr (delimiters, *s) != NULL) {  // 현재 문자가 구분자에 포함되어 있는지 확인
+        if (*s == '\0') {  // 만약 문자열이 끝났다면 NULL을 반환
+            *save_ptr = s;
+            return NULL;
+        }
+        s++;  // 구분자를 건너뛰고 다음 문자로 이동
+    }
 
-		s++;
-	}
-
-	/* Skip any non-DELIMITERS up to the end of the string. */
-	token = s;
-	while (strchr (delimiters, *s) == NULL)
-		s++;
-	if (*s != '\0') {
-		*s = '\0';
-		*save_ptr = s + 1;
-	} else
-		*save_ptr = s;
-	return token;
+    /* 구분자가 아닌 문자들을 건너뜀 (토큰의 끝까지 탐색) */
+    token = s;
+    // 문자면 while문 들어감, 빈 칸이면 while문 안들어감
+		while (strchr (delimiters, *s) == NULL)  // 구분자가 나올 때까지 이동
+        s++;
+    if (*s != '\0') {  // 구분자를 발견하면 그 위치에 NULL을 삽입해 토큰을 끝냄
+        *s = '\0';
+        *save_ptr = s + 1;  // 다음 호출을 위해 포인터 위치 저장
+    } else
+        *save_ptr = s;  // 문자열 끝이면 포인터 저장
+    return token;  // 토큰 반환
 }
+
 
 /* Sets the SIZE bytes in DST to VALUE. */
 void *

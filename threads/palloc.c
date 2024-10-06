@@ -234,24 +234,41 @@ split:
 	}
 }
 
-/* Initializes the page allocator and get the memory size */
+/* Initializes the page allocator and get the memory size.
+   페이지 할당자를 초기화하고, 시스템의 메모리 크기를 반환하는 함수.
+   이 함수는 메모리 풀을 설정하고, 사용할 수 있는 메모리 영역을 설정함. */
 uint64_t
 palloc_init (void) {
   /* End of the kernel as recorded by the linker.
-     See kernel.lds.S. */
+     커널의 끝을 기록한 포인터. 링커 파일(kernel.lds.S)에 의해 결정됨.
+     커널이 사용하는 메모리의 끝 주소를 나타냄. */
 	extern char _end;
-	struct area base_mem = { .size = 0 };
-	struct area ext_mem = { .size = 0 };
+	
+	/* 기본 메모리(base memory)와 확장 메모리(extended memory)의 정보를 저장할 구조체 선언.
+	   각각의 구조체는 메모리 시작 주소(start), 끝 주소(end), 사용 가능한 크기(size)를 가짐. */
+	struct area base_mem = { .size = 0 };  // 기본 메모리 초기화
+	struct area ext_mem = { .size = 0 };   // 확장 메모리 초기화
 
+	/* resolve_area_info 함수를 통해 기본 메모리와 확장 메모리의 정보를 채움.
+	   이 함수는 메모리의 시작, 끝, 크기를 설정함. */
 	resolve_area_info (&base_mem, &ext_mem);
+
+	/* 부팅 시 사용 가능한 메모리 정보를 출력. */
 	printf ("Pintos booting with: \n");
 	printf ("\tbase_mem: 0x%llx ~ 0x%llx (Usable: %'llu kB)\n",
-		  base_mem.start, base_mem.end, base_mem.size / 1024);
+		  base_mem.start, base_mem.end, base_mem.size / 1024);  // 기본 메모리 정보 출력
 	printf ("\text_mem: 0x%llx ~ 0x%llx (Usable: %'llu kB)\n",
-		  ext_mem.start, ext_mem.end, ext_mem.size / 1024);
+		  ext_mem.start, ext_mem.end, ext_mem.size / 1024);    // 확장 메모리 정보 출력
+
+	/* populate_pools 함수를 호출하여 기본 메모리와 확장 메모리 풀을 채움.
+	   페이지 할당 풀을 설정함. */
 	populate_pools (&base_mem, &ext_mem);
+
+	/* 확장 메모리의 끝 주소를 반환함.
+	   이 값은 전체 메모리 크기를 나타내며, 이후 페이징 시스템에서 사용될 수 있음. */
 	return ext_mem.end;
 }
+
 
 /* Obtains and returns a group of PAGE_CNT contiguous free pages.
    If PAL_USER is set, the pages are obtained from the user pool,
@@ -259,30 +276,46 @@ palloc_init (void) {
    then the pages are filled with zeros.  If too few pages are
    available, returns a null pointer, unless PAL_ASSERT is set in
    FLAGS, in which case the kernel panics. */
+/* 여러 페이지를 할당하고 그 페이지들의 시작 주소를 반환하는 함수이다.
+   만약 PAL_USER가 설정되면 사용자 풀에서 페이지를 가져오고, 
+   설정되지 않으면 커널 풀에서 가져온다.
+   PAL_ZERO가 설정되면 페이지들이 0으로 초기화된다.
+   할당할 페이지가 부족하면 널 포인터를 반환하고, 
+   PAL_ASSERT가 설정되면 커널 패닉을 발생시킨다. */
 void *
 palloc_get_multiple (enum palloc_flags flags, size_t page_cnt) {
+    // 사용자가 지정한 플래그에 따라 사용자 풀 또는 커널 풀을 선택
 	struct pool *pool = flags & PAL_USER ? &user_pool : &kernel_pool;
 
+    // 메모리 풀을 보호하기 위해 잠금을 획득하고 페이지 할당을 시도
 	lock_acquire (&pool->lock);
+    // 주어진 수의 연속된 페이지를 찾아서 할당. 실패 시 BITMAP_ERROR 반환
 	size_t page_idx = bitmap_scan_and_flip (pool->used_map, 0, page_cnt, false);
 	lock_release (&pool->lock);
 	void *pages;
 
+    // 페이지가 정상적으로 할당된 경우
 	if (page_idx != BITMAP_ERROR)
+        // 페이지의 시작 주소 계산 (기준 주소 + 페이지 크기 * 페이지 인덱스)
 		pages = pool->base + PGSIZE * page_idx;
 	else
+        // 페이지 할당 실패 시 널 포인터 반환
 		pages = NULL;
 
+    // 페이지가 정상적으로 할당된 경우
 	if (pages) {
+        // 만약 PAL_ZERO가 설정되었으면 할당된 페이지들을 0으로 초기화
 		if (flags & PAL_ZERO)
 			memset (pages, 0, PGSIZE * page_cnt);
 	} else {
+        // 페이지 할당 실패 시, PAL_ASSERT가 설정되었으면 커널 패닉 발생
 		if (flags & PAL_ASSERT)
 			PANIC ("palloc_get: out of pages");
 	}
 
-	return pages;
+	return pages;  // 할당된 페이지들의 시작 주소 반환 또는 널 포인터 반환
 }
+
 
 /* Obtains a single free page and returns its kernel virtual
    address.
@@ -291,10 +324,18 @@ palloc_get_multiple (enum palloc_flags flags, size_t page_cnt) {
    then the page is filled with zeros.  If no pages are
    available, returns a null pointer, unless PAL_ASSERT is set in
    FLAGS, in which case the kernel panics. */
+/* 하나의 페이지를 할당하고, 커널 가상 주소를 반환하는 함수이다.
+   만약 flags에 PAL_USER가 설정되면, 사용자 풀에서 페이지를 가져온다.
+   그렇지 않으면 커널 풀에서 가져온다.
+   flags에 PAL_ZERO가 설정되면 페이지를 0으로 초기화한다.
+   만약 할당할 수 있는 페이지가 없으면 null 포인터를 반환한다.
+   flags에 PAL_ASSERT가 설정되면, 페이지가 없을 때 커널 패닉을 일으킨다. */
 void *
 palloc_get_page (enum palloc_flags flags) {
+    // 여러 페이지 중 하나만 할당한다.
 	return palloc_get_multiple (flags, 1);
 }
+
 
 /* Frees the PAGE_CNT pages starting at PAGES. */
 void

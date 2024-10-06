@@ -193,6 +193,8 @@ thread_create (const char *name, int priority,
 	if (t == NULL)
 		return TID_ERROR;
 
+
+
 	/* Initialize thread. */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
@@ -428,30 +430,29 @@ thread_get_recent_cpu (void) {
    blocks.  After that, the idle thread never appears in the
    ready list.  It is returned by next_thread_to_run() as a
    special case when the ready list is empty. */
+	 /* Idle 스레드의 동작을 정의.
+   다른 실행할 스레드가 없을 때만 실행되며, 처음 생성될 때는
+   ready 리스트에 들어간다. idle 스레드가 처음 실행될 때
+   세마포어를 통해 main 스레드를 깨운 뒤, 스스로 block 상태로 전환된다. */
 static void
 idle (void *idle_started_ UNUSED) {
+	// idle 스레드를 위한 세마포어를 받음
 	struct semaphore *idle_started = idle_started_;
 
-	idle_thread = thread_current ();
+	// 현재 실행 중인 스레드를 idle_thread로 설정
+	idle_thread = thread_current (); 
+
+	// 세마포어를 'up'해서 main 스레드를 깨운다.
 	sema_up (idle_started);
 
 	for (;;) {
-		/* Let someone else run. */
-		intr_disable ();
-		thread_block ();
+		/* 스레드 스케줄링을 위한 준비: 다른 스레드가 실행될 수 있도록 CPU를 양보.
+		   CPU가 다음 스레드를 실행할 수 있도록 idle 스레드는 block 상태로 전환된다. */
+		intr_disable ();  // 인터럽트 비활성화 (안전한 상태에서 block)
+		thread_block ();  // 현재 idle 스레드를 block 상태로 전환
 
-		/* Re-enable interrupts and wait for the next one.
-
-		   The `sti' instruction disables interrupts until the
-		   completion of the next instruction, so these two
-		   instructions are executed atomically.  This atomicity is
-		   important; otherwise, an interrupt could be handled
-		   between re-enabling interrupts and waiting for the next
-		   one to occur, wasting as much as one clock tick worth of
-		   time.
-
-		   See [IA32-v2a] "HLT", [IA32-v2b] "STI", and [IA32-v3a]
-		   7.11.1 "HLT Instruction". */
+		/* 인터럽트를 다시 활성화하고 CPU가 유휴 상태에서 멈추도록 함.
+		   이 명령은 CPU가 대기 상태에 들어가고, 스케줄러가 실행될 때까지 기다림. */
 		asm volatile ("sti; hlt" : : : "memory");
 	}
 }
