@@ -279,7 +279,7 @@ thread_unblock (struct thread *t) {
 }
 
 bool
-priority_greater (const struct list_elem *a, const struct list_elem *b, void *aux)
+priority_greater (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {	
 	struct thread *thread_a = list_entry(a, struct thread, elem);
 	struct thread *thread_b = list_entry(b, struct thread, elem);
@@ -287,7 +287,7 @@ priority_greater (const struct list_elem *a, const struct list_elem *b, void *au
 	return thread_a->priority > thread_b->priority;
 }
 
-bool donate_high_priority(const struct list_elem *a, const struct list_elem *b, void *aux)
+bool donate_high_priority(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
 	const struct thread *priority_a = list_entry(a, struct thread, donation_elem);
 	const struct thread *priority_b = list_entry(b, struct thread, donation_elem);
@@ -350,7 +350,7 @@ thread_exit (void) {
 	/* Just set our status to dying and schedule another process.
 	   We will be destroyed during the call to schedule_tail(). */
 	intr_disable ();
-	do_schedule (THREAD_DYING);
+	do_schedule (THREAD_DYING); // 스레드 전환 과정에서 인터럽트 자동으로 다시 활성화됨.
 	NOT_REACHED ();
 }
 

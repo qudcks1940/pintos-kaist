@@ -39,7 +39,7 @@ syscall_entry:
 	movq %rsp, %rdi
 
 check_intr:
-	btsq $9, %r11          /* Check whether we recover the interrupt */
+	btsq $9, %r11       
 	jnb no_sti
 	sti                    /* restore interrupt */
 no_sti:
@@ -65,7 +65,7 @@ no_sti:
 	addq $8, %rsp
 	popq %r11              /* if->eflags */
 	popq %rsp              /* if->rsp */
-	sysretq
+	sysretq		
 
 .section .data
 .globl temp1

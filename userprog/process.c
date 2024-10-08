@@ -26,6 +26,8 @@ static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
+struct thread* get_child_process(int pid);
+void argument_stack(char **argv, int argc, struct intr_frame *if_);
 
 /* General process initializer for initd and other process. */
 static void
@@ -86,8 +88,33 @@ initd (void *f_name) {
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	/* Clone current thread to new thread.*/
-	return thread_create (name,
-			PRI_DEFAULT, __do_fork, thread_current ());
+	struct thread *curr = thread_current();
+	// 현재 스레드의 정보를 복사해둠. 현재 인터럽트 프레임에 레지스터값, 
+	// 플래그, 스택포인터 등이 포함되어 있어 현재 프로세스의 상태를 나타냄.
+	// 이 if_값을 현재 스레드의 parent_if필드에 복사해둠. 나중에 자식 프로세스에 복제하기 위한 정보.
+	memcpy(&curr->parent_if, if_, sizeof(struct intr_frame));
+
+	// 새로운 스레드 생성. do fork는 생성되고 실행될 함수. 
+	// 부모프로세스의 상태를 복사하고, 자식 프로세스를 부모와 동일하게 만들어줌.
+	// create가 성공하면 새 스레드의 pid를 반환함. 실패시 에러 반환.
+	tid_t pid = thread_create (name, PRI_DEFAULT, __do_fork, thread_current ());
+	if (pid == TID_ERROR)
+		return TID_ERROR;
+	
+	// 새로 생성된 자식 스레드가 부모 스레드의 자식 리스트에 추가 됐는지 확인.
+	// 성공적으로 추가 됐으면, 자식 스레드의 정보를 반환
+	struct thread *child = get_child_process(pid);
+	// 부모 프로세스가 자식 프로세스가 메모리 로드 완료할 떄까지 기다리도록 만드는 역할.
+	// 자식 스레드가 메모리에 로드되면 sema_up을 호출해서 부모 스레드가 계속 실행되도록 신호 보냄.
+	sema_down(&child->load_sema); 
+
+	// 자식스레드가 정상적으로 실행되지 않고 오류 발생시키며 종료됐다면,
+	//  exit_status가 오류값을 반환하면서 포크 과정이 실패했음을 나타냄.
+	if(child->exit_status == TID_ERROR)
+		return TID_ERROR;
+	
+	// 이 과정들이 잘 완료 됐다면 생성된 자식 스레드의 프로세스id를 반환.
+	return pid;
 }
 
 #ifndef VM
@@ -209,9 +236,6 @@ process_exec (void *f_name) {
 	token = strtok_r(file_name, " ", &save_ptr); // 첫 번째 호출 이후 NULL로 설정하여 다음 토큰을 처리
 	while (token != NULL) {
 		argv[argc++] = token; // argv 배열에 토큰 저장
-		printf("-------------------\n");
-		printf("-------%s-----\n",token);
-		printf("-------------------\n");
 		token = strtok_r(NULL, " ", &save_ptr); 
 	}
 
@@ -314,37 +338,82 @@ void argument_stack(char **argv, int argc, struct intr_frame *if_)
 	if_->R.rsi = if_->rsp + 8;	//fake return address + 8
 }
 
-/* Waits for thread TID to die and returns its exit status.  If
- * it was terminated by the kernel (i.e. killed due to an
- * exception), returns -1.  If TID is invalid or if it was not a
- * child of the calling process, or if process_wait() has already
- * been successfully called for the given TID, returns -1
- * immediately, without waiting.
- *
- * This function will be implemented in problem 2-2.  For now, it
- * does nothing. */
+/* TID 스레드가 종료될 때까지 기다린 후 그 종료 상태를 반환합니다.
+ * 만약 커널에 의해 종료되었다면 (즉, 예외로 인해 종료된 경우),
+ * -1을 반환합니다. TID가 유효하지 않거나 호출한 프로세스의
+ * 자식 프로세스가 아닌 경우, 또는 주어진 TID에 대해 process_wait()이 
+ * 이미 성공적으로 호출된 경우, 즉시 -1을 반환하며 기다리지 않습니다.*/
 int
 process_wait (tid_t child_tid UNUSED) {
-	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-	 * XXX:       to add infinite loop here before
-	 * XXX:       implementing the process_wait. */
-	while(1) {
-		
-	}
+	
+	struct thread *child = get_child_process(child_tid);
+	if (child == NULL)
+		return -1;  // 직속 자식이 아니거나 없는 자식이면 -1 반환
 
-	return -1;
+	// 이미 wait가 호출된 적이 있는지 확인 (중복 방지)
+    if (child->wait_sema.value == 0) {
+        return -1;  // 이미 wait() 호출됨
+    }
+
+	// 자식이 종료될 때까지 대기한다. (process_exit에서 자식이 종료될 때 sema_up 해줄 것이다.)
+	// 세마포어를 내리면서 해당 프로세스가 기다리도록 한다. 
+	// 세마포어가 신호를 받을때까지(즉, 자식 프로세스가 종료 될 때까지) 부모프로세스가 대기 상태로 있음
+	sema_down(&child->wait_sema);
+
+	 // 자식이 커널에 의해 강제 종료되었는지 확인하고, 이 경우 -1 반환
+    if (child->exit_status == -1) {
+        return -1;
+    }
+	// 자식이 종료됨을 알리는 `wait_sema` signal을 받으면 현재 스레드(부모)의 자식 리스트에서 제거한다.
+	// 부모가 자식을 더 이상 기다리지 않게됨. 부모-자식 관계를 명시적으로 끊는 작업...ㅜㅜ
+	list_remove(&child->child_elem);
+
+	// 자식이 시스템에서 완전히 종료될 수 있도록 세마신호를 주고, 종료 상태 값을 받아옴.
+	sema_down(&child->exit_sema);
+
+	return child->exit_status;
+}
+
+struct thread*
+get_child_process(int pid)
+{
+	struct list *child_list = &thread_current()->child_list;
+	struct list_elem *e;
+
+	for (e = list_begin(child_list); e != list_end(child_list); e = list_next(e)) {
+		struct thread *t = list_entry(e, struct thread, child_elem);
+
+		if (t->tid == pid)
+			return t;
+	}
+	return NULL;
+
 }
 
 /* Exit the process. This function is called by thread_exit (). */
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
-	/* TODO: Your code goes here.
-	 * TODO: Implement process termination message (see
-	 * TODO: project2/process_termination.html).
-	 * TODO: We recommend you to implement process resource cleanup here. */
+	
+	struct list *fd_table = &curr->fd_table; // 프로세스가 열어둔 파일들의 정보를 가지고 있음.
+	struct list_elem *e;
+	struct file_descriptor *fd;
 
-	process_cleanup ();
+	while(!list_empty(fd_table)) { // fd_table의 열려있는 모든 파일 닫고 메모리 반환.
+		e = list_pop_front(fd_table);
+		fd = list_entry(e, struct file_descriptor, fd_elem); //리스트 요소 e에서 fd 가져옴.
+		close(fd); //fd가 가리키고 있는 파일을 닫음.
+	}
+
+	file_close(curr->running); // 현재 프로세스가 실행하고 있는 파일까지 끄면서 마무리.
+
+	process_cleanup (); // 프로세스가 종료될 때 메모리 정리와 자원 반환.
+
+	sema_up(&curr->wait_sema); // 자식 프로세스가 종료되었음을 부모에게 알리는 역할.
+	sema_down(&curr->exit_sema); 
+	// 자식 프로세스는 완전히 시스템에서 종료되기 전에 
+	// 다시 한번 세마포어를 사용해 대기 상태로 들어감. 부모가 자식 프로세스의 종료를 완전히 확인한 후에만
+	// 자식 프로세스가 시스템에서 제거될 수 있도록 보장하는 역할을 함.
 }
 
 /* Free the current process's resources. */

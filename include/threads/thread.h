@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -89,17 +90,29 @@ struct thread {
 	/* Owned by thread.c. */
 	tid_t tid;                          /* Thread identifier. */
 	enum thread_status status;          /* Thread state. */
+	int exit_status;     /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
 	int64_t wake_ticks;
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
+	
+	struct file *fd_table[128]; // fd table
+	struct file *running;	//현재 스레드의 실행 중인 파일을 저장
+
+	struct intr_frame parent_if;
+	struct list child_list; 	//자식 리스트
+	struct list_elem child_elem;
 
 	// priority donation 구현
 	int init_priority;					/* init_priority */
 	struct lock *wait_on_lock; 			/* 해당 스레드가 대기 하고 있는 lock자료구조의 주소를 저장 */
 	struct list donations;				/* multiple donation 을 고려하기 위해 사용*/
 	struct list_elem donation_elem;		/* multiple donation 을 고려하기 위해 사용*/
+	
+	struct semaphore load_sema;
+	struct semaphore wait_sema;
+	struct semaphore exit_sema;
 
 
 #ifdef USERPROG
@@ -115,6 +128,13 @@ struct thread {
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
 };
+
+struct file_descriptor {
+	int fd_num;
+	struct list_elem fd_elem;
+	struct file *file;
+};
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -157,7 +177,7 @@ bool priority_greater (const struct list_elem *a, const struct list_elem *b, voi
 void donate_priority(void);
 void remove_with_lock(struct lock *lock);
 void refresh_priority(void);
-bool check_priority_threads();
+bool check_priority_threads(void);
 bool donate_high_priority(const struct list_elem *a, const struct list_elem *b, void *aux);
 
 #endif /* threads/thread.h */

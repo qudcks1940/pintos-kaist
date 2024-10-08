@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "*.inc": "c",
+        "syscall.h": "c",
+        "synch.h": "c",
+        "syscall-nr.h": "c"
+    }
+}

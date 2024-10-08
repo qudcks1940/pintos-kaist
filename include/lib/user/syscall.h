@@ -21,11 +21,14 @@ typedef int off_t;
 #define EXIT_FAILURE 1          /* Unsuccessful execution. */
 
 /* Projects 2 and later. */
-void halt (void) NO_RETURN;
-void exit (int status) NO_RETURN;
+// process 관련
+void halt (void);
+void exit (int status);
 pid_t fork (const char *thread_name);
 int exec (const char *file);
 int wait (pid_t);
+
+// fd 관련
 bool create (const char *file, unsigned initial_size);
 bool remove (const char *file);
 int open (const char *file);
